@@ -107,10 +107,19 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.coerceIn
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -189,6 +198,18 @@ fun MessageInputText(
   var pickedAudioClips by remember { mutableStateOf<List<AudioClip>>(listOf()) }
   var hasFrontCamera by remember { mutableStateOf(false) }
   val sensorObserver = remember { SensorObserver(context) }
+
+  var textFieldValue by remember { mutableStateOf(TextFieldValue(curMessage)) }
+
+  LaunchedEffect(curMessage) {
+    if (curMessage != textFieldValue.text) {
+      textFieldValue =
+        textFieldValue.copy(
+          text = curMessage,
+          selection = textFieldValue.selection.coerceIn(0, curMessage.length),
+        )
+    }
+  }
 
   val updatePickedImages: (List<Bitmap>) -> Unit = { bitmaps ->
     val isAiCore = modelManagerUiState.selectedModel.runtimeType == RuntimeType.AICORE
@@ -375,10 +396,15 @@ fun MessageInputText(
                 // Text field.
                 val cdPromptInput = stringResource(R.string.cd_prompt_input_text_field)
                 TextField(
-                  value = curMessage,
+                  value = textFieldValue,
                   minLines = 1,
                   maxLines = 3,
-                  onValueChange = onValueChanged,
+                  onValueChange = {
+                    textFieldValue = it
+                    if (it.text != curMessage) {
+                      onValueChanged(it.text)
+                    }
+                  },
                   colors =
                     TextFieldDefaults.colors(
                       unfocusedContainerColor = Color.Transparent,
@@ -389,7 +415,47 @@ fun MessageInputText(
                       disabledContainerColor = Color.Transparent,
                     ),
                   textStyle = bodyLargeNarrow,
-                  modifier = Modifier.weight(1f).semantics { contentDescription = cdPromptInput },
+                  modifier =
+                    Modifier.weight(1f)
+                      .semantics { contentDescription = cdPromptInput }
+                      .onPreviewKeyEvent {
+                        if (it.key == Key.Enter || it.key == Key.NumPadEnter) {
+                          if (it.isShiftPressed) {
+                            if (it.type == KeyEventType.KeyDown) {
+                              val text = textFieldValue.text
+                              val selection = textFieldValue.selection
+                              val newText = text.replaceRange(selection.start, selection.end, "\n")
+                              textFieldValue =
+                                textFieldValue.copy(
+                                  text = newText,
+                                  selection = TextRange(selection.start + 1),
+                                )
+                              onValueChanged(newText)
+                            }
+                            return@onPreviewKeyEvent true
+                          }
+                          if (it.type == KeyEventType.KeyDown) {
+                            val canSend =
+                              !inProgress &&
+                                !isResettingSession &&
+                                (curMessage.isNotEmpty() || pickedAudioClips.isNotEmpty())
+                            if (canSend) {
+                              val message = curMessage.trim()
+                              onSendMessage(
+                                createMessagesToSend(
+                                  pickedImages = pickedImages,
+                                  audioClips = pickedAudioClips,
+                                  text = message,
+                                )
+                              )
+                              pickedImages = listOf()
+                              pickedAudioClips = listOf()
+                            }
+                          }
+                          return@onPreviewKeyEvent true
+                        }
+                        false
+                      },
                   placeholder = { Text(stringResource(textFieldPlaceHolderRes)) },
                 )
                 Spacer(modifier = Modifier.width(4.dp))
