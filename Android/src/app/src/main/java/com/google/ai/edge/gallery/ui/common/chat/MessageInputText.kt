@@ -104,6 +104,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -199,6 +201,8 @@ fun MessageInputText(
   var hasFrontCamera by remember { mutableStateOf(false) }
   val sensorObserver = remember { SensorObserver(context) }
 
+  val focusRequester = remember { FocusRequester() }
+
   var textFieldValue by remember { mutableStateOf(TextFieldValue(curMessage)) }
 
   LaunchedEffect(curMessage) {
@@ -252,6 +256,16 @@ fun MessageInputText(
   LaunchedEffect(pickedImages) { onPickedImagesChanged(pickedImages) }
 
   LaunchedEffect(pickedAudioClips) { onPickedAudioClipsChanged(pickedAudioClips) }
+
+  LaunchedEffect(inProgress, showAudioRecorder) {
+    if (!inProgress && !showAudioRecorder) {
+      try {
+        focusRequester.requestFocus()
+      } catch (e: Exception) {
+        Log.w(TAG, "Focus request failed", e)
+      }
+    }
+  }
 
   // Permission request when taking picture.
   val takePicturePermissionLauncher =
@@ -417,6 +431,7 @@ fun MessageInputText(
                   textStyle = bodyLargeNarrow,
                   modifier =
                     Modifier.weight(1f)
+                      .focusRequester(focusRequester)
                       .semantics { contentDescription = cdPromptInput }
                       .onPreviewKeyEvent {
                         if (it.key == Key.Enter || it.key == Key.NumPadEnter) {
